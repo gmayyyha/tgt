@@ -17,7 +17,7 @@ managed by librbd.
 To use bs_rbd, select --bstype rbd, and set --backing-store to an rbd
 image specifier.  This is of the form
 
-	[poolname/]imagename[@snapname]
+	[poolname/[nsname/]]imagename[@snapname]
 
 where poolname is the RADOS pool containing the rbd image (defaults to
 "rbd"), imagename is the image you want to export, and snapname is the

@@ -48,6 +48,7 @@
 
 struct active_rbd {
 	char *poolname;
+	char *nsname;
 	char *imagename;
 	char *snapname;
 	rados_t cluster;
@@ -62,30 +63,47 @@ struct active_rbd {
 				sizeof(struct bs_thread_info)) \
 			)
 
-static void parse_imagepath(char *path, char **pool, char **image, char **snap)
+static void parse_imagepath(char *path, char **pool, char **nsname,
+				char **image, char **snap)
 {
 	char *origp = strdup(path);
 	char *p, *sep;
 
 	p = origp;
-	sep = strchr(p, '/');
-	if (sep == NULL) {
-		*pool = "rbd";
-	} else {
-		*sep = '\0';
-		*pool = strdup(p);
-		p = sep + 1;
-	}
-	/* p points to image[@snap] */
 	sep = strchr(p, '@');
 	if (sep == NULL) {
 		*snap = "";
 	} else {
-		*snap = strdup(sep + 1);
+		/* p point to @snap */
 		*sep = '\0';
+		*snap = strdup(sep + 1);
 	}
-	/* p points to image\0 */
-	*image = strdup(p);
+
+	/* p point to [pool/[nsname/]]image */
+	p = origp;
+	sep = strchr(p, '/');
+	if (sep == NULL) {
+		*pool = "rbd";
+		*nsname = "";
+		*image = strdup(p);
+	} else {
+		*sep = '\0';
+		*pool = strdup(p);
+		*nsname = "";
+
+		/* p point to [nsname/]image */
+		p = sep + 1;
+		sep = strchr(p, '/');
+		if (sep == NULL) {
+			*image = strdup(p);
+		} else {
+			*sep = '\0';
+			*nsname = strdup(p);
+			p = sep + 1;
+			*image = strdup(p);
+		}
+	}
+
 	free(origp);
 }
 
@@ -419,23 +437,28 @@ static int bs_rbd_open(struct scsi_lu *lu, char *path, int *fd, uint64_t *size)
 	int ret;
 	rbd_image_info_t inf;
 	char *poolname;
+	char *nsname;
 	char *imagename;
 	char *snapname;
 	struct active_rbd *rbd = RBDP(lu);
 
-	parse_imagepath(path, &poolname, &imagename, &snapname);
+	parse_imagepath(path, &poolname, &nsname, &imagename, &snapname);
 
 	rbd->poolname = poolname;
+	rbd->nsname = nsname;
 	rbd->imagename = imagename;
 	rbd->snapname = snapname;
-	eprintf("bs_rbd_open: pool: %s image: %s snap: %s\n",
-		poolname, imagename, snapname);
+	eprintf("bs_rbd_open: pool: %s namespace: %s image: %s snap: %s\n",
+		poolname, nsname, imagename, snapname);
 
 	ret = rados_ioctx_create(rbd->cluster, poolname, &rbd->ioctx);
 	if (ret < 0) {
 		eprintf("bs_rbd_open: rados_ioctx_create: %d\n", ret);
 		return -EIO;
 	}
+
+	if (strlen(nsname) > 0)
+		rados_ioctx_set_namespace(rbd->ioctx, nsname);
 
 	ret = rbd_open(rbd->ioctx, imagename, &rbd->rbd_image, snapname);
 	if (ret < 0) {
